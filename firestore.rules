@@ -1,0 +1,144 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isApprovedProfessional(professionalId) {
+      return exists(/databases/$(database)/documents/professionals/$(professionalId))
+        && get(/databases/$(database)/documents/professionals/$(professionalId)).data.approvalStatus == 'aprobado'
+        && get(/databases/$(database)/documents/professionals/$(professionalId)).data.status == 'activo';
+    }
+
+    function isActiveClient(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId))
+        && get(/databases/$(database)/documents/users/$(userId)).data.role == 'cliente'
+        && get(/databases/$(database)/documents/users/$(userId)).data.status == 'activo';
+    }
+
+    function isMaintenanceOn() {
+      return exists(/databases/$(database)/documents/settings/global)
+        && get(/databases/$(database)/documents/settings/global).data.maintenance == true;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == request.auth.uid
+        && (
+          (request.resource.data.role == 'cliente' && request.resource.data.status == 'activo')
+          ||
+          (request.resource.data.role == 'trabajador'
+            && request.resource.data.status == 'pendiente'
+            && request.resource.data.approvalStatus == 'pendiente_revision')
+        );
+      allow update: if isAdmin() || (
+        signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role == resource.data.role
+        && (
+          (resource.data.role == 'cliente'
+            && request.resource.data.status == resource.data.status)
+          || (resource.data.role == 'trabajador'
+            && 'approvalStatus' in resource.data
+            && request.resource.data.approvalStatus == resource.data.approvalStatus
+            && request.resource.data.status == resource.data.status)
+          || (resource.data.role == 'trabajador'
+            && request.resource.data.approvalStatus == 'pendiente_revision'
+            && request.resource.data.status == 'pendiente')
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /professionals/{professionalId} {
+      // Solo el resumen público de profesionales aprobados se ve sin iniciar sesión.
+      allow read: if isAdmin()
+        || (signedIn() && request.auth.uid == professionalId)
+        || (resource.data.approvalStatus == 'aprobado' && resource.data.status == 'activo');
+      allow create: if signedIn()
+        && request.auth.uid == professionalId
+        && request.resource.data.role == 'trabajador'
+        && request.resource.data.approvalStatus == 'pendiente_revision'
+        && request.resource.data.status == 'pendiente';
+      allow update: if isAdmin() || (
+        signedIn()
+        && request.auth.uid == professionalId
+        && request.resource.data.approvalStatus == resource.data.approvalStatus
+        && request.resource.data.status == resource.data.status
+      ) || (
+        signedIn()
+        && request.auth.uid == professionalId
+        && request.resource.data.approvalStatus == 'pendiente_revision'
+        && request.resource.data.status == 'pendiente'
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /requests/{requestId} {
+      allow read: if isAdmin() || (signedIn() && (
+        resource.data.clientId == request.auth.uid
+        || resource.data.workerId == request.auth.uid
+      ));
+      allow create: if signedIn()
+        && request.resource.data.clientId == request.auth.uid
+        && isActiveClient(request.auth.uid)
+        && !isMaintenanceOn()
+        && request.resource.data.workerId is string
+        && request.resource.data.status == 'pendiente'
+        && isApprovedProfessional(request.resource.data.workerId);
+      allow update: if isAdmin()
+        || (signedIn()
+          && resource.data.workerId == request.auth.uid
+          && request.resource.data.workerId == resource.data.workerId
+          && request.resource.data.clientId == resource.data.clientId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'price', 'quoteAmount', 'commissionRate', 'homeCommission',
+            'workerEarnings', 'updatedAt', 'completedAt', 'quoteMessage', 'estimatedDate'
+          ])
+          && request.resource.data.status in ['aceptada', 'rechazada', 'en_progreso', 'completada'])
+        || (signedIn()
+          && resource.data.clientId == request.auth.uid
+          && request.resource.data.clientId == resource.data.clientId
+          && request.resource.data.workerId == resource.data.workerId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'rating', 'reviewText', 'updatedAt'
+          ])
+          && (request.resource.data.status == resource.data.status
+            || (resource.data.status == 'pendiente' && request.resource.data.status == 'cancelada')));
+      allow delete: if isAdmin();
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.clientId == request.auth.uid
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && exists(/databases/$(database)/documents/requests/$(request.resource.data.requestId))
+        && get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.clientId == request.auth.uid
+        && get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.workerId == request.resource.data.workerId
+        && get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.status == 'completada';
+      allow update, delete: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
