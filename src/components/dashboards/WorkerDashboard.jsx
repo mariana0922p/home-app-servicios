@@ -173,10 +173,11 @@ export default function WorkerDashboard({ session, onLogout }) {
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 try {
-                  const hvInput = document.getElementById("hoja-vida-file")?.files?.[0];
-                  const certInput = document.getElementById("certificado-file")?.files?.[0];
+                  // CAPTURA CORRECTA DE ARCHIVOS EN REACT/VITE
+                  const hvFile = document.getElementById("hoja-vida-file")?.files[0];
+                  const certFile = document.getElementById("certificado-file")?.files[0];
 
-                  if (!hvInput && !certInput) {
+                  if (!hvFile && !certFile) {
                     toast("Por favor, selecciona al menos un archivo para actualizar.");
                     return;
                   }
@@ -184,18 +185,18 @@ export default function WorkerDashboard({ session, onLogout }) {
                   toast("Subiendo documentos actualizados...");
                   let updates = { approvalStatus: "pendiente_revision" };
 
-                  // Solución de CORS: Metadatos explícitos firmados por token de sesión
-                  if (hvInput) {
-                    const hvRef = storageRef(storage, `professional-documents/${userId}/hoja-de-vida-${Date.now()}-${hvInput.name}`);
-                    const metadata = { contentType: hvInput.type };
-                    const snap = await uploadBytes(hvRef, hvInput, metadata);
+                  // PARCHE DE CORS: Se le inyecta el tipo de contenido (metadata) explícito
+                  if (hvFile) {
+                    const hvRef = storageRef(storage, `professional-documents/${userId}/hoja_de_vida_${Date.now()}_${hvFile.name}`);
+                    const metadata = { contentType: hvFile.type };
+                    const snap = await uploadBytes(hvRef, hvFile, metadata);
                     updates.cvFile = await getDownloadURL(snap.ref);
                   }
 
-                  if (certInput) {
-                    const certRef = storageRef(storage, `professional-documents/${userId}/certificado-${Date.now()}-${certInput.name}`);
-                    const metadata = { contentType: certInput.type };
-                    const snap = await uploadBytes(certRef, certInput, metadata);
+                  if (certFile) {
+                    const certRef = storageRef(storage, `professional-documents/${userId}/certificado_${Date.now()}_${certFile.name}`);
+                    const metadata = { contentType: certFile.type };
+                    const snap = await uploadBytes(certRef, certFile, metadata);
                     updates.certificateFile = await getDownloadURL(snap.ref);
                   }
 
