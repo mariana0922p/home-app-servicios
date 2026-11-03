@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Shell from "../ui/Shell.jsx";
 import { Icon } from "../ui/Icons.jsx";
 import { Avatar, AreaChart, Badge, BarChart, Card, Donut, Empty, Modal, StatCard, Stars, useToast } from "../ui/Kit.jsx";
@@ -6,6 +6,8 @@ import { useStore } from "../../data/store.jsx";
 import { fmtCOP, fmtDate, lookFor } from "../../data/utils.js";
 import { exportAdminFinancialExcel, exportAdminWorkersExcel } from "../../data/excelExport.js";
 import { updateWorkerApproval } from "../../services/db.js";
+import { getWorkerDoc } from "../../services/docs.js";
+import { dataUrlToBlobUrl, prettySize } from "../../data/files.js";
 
 const DONUT_COLORS = ["#ea580c", "#006a63", "#dd9a2b", "#8e7166", "#2bb3a8", "#c2410c"];
 
@@ -382,8 +384,69 @@ function Usuarios({ state, dispatch, toast }) {
   );
 }
 
+const hasDocs = (w) => Boolean((w.hasCv || w.cvUrl) && (w.hasCert || w.certificateUrl));
+
+/* Visor de documentos: abre la hoja de vida o el certificado guardados en Firestore */
+function DocViewer({ worker, kind, onClose }) {
+  const [doc, setDoc] = useState(undefined); // undefined = cargando, null = no existe
+  const [blobUrl, setBlobUrl] = useState(null);
+  const [err, setErr] = useState(null);
+  const title = kind === "cv" ? "Hoja de vida" : "Certificado técnico";
+
+  useEffect(() => {
+    let alive = true;
+    let created = null;
+    (async () => {
+      try {
+        const d = await getWorkerDoc(worker.id, kind);
+        if (!alive) return;
+        setDoc(d);
+        if (d && d.type === "application/pdf") {
+          created = await dataUrlToBlobUrl(d.data);
+          if (alive) setBlobUrl(created);
+        }
+      } catch (e) {
+        console.error(e);
+        if (alive) setErr("No se pudo cargar el documento. Verifica que las reglas de Firestore estén publicadas.");
+      }
+    })();
+    return () => {
+      alive = false;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [worker.id, kind]);
+
+  return (
+    <Modal title={`${title} · ${worker.name}`} onClose={onClose} wide>
+      {err && <p style={{ color: "#ba1a1a" }}>{err}</p>}
+      {doc === undefined && !err && <p>Cargando documento...</p>}
+      {doc === null && <p>Este profesional todavía no ha cargado este documento en la base de datos.</p>}
+      {doc && (
+        <>
+          <div className="hd-doc-meta">
+            <span>
+              📄 <b>{doc.name}</b> · {prettySize(doc.size)}
+            </span>
+            <a className="hd-btn ghost sm" href={doc.data} download={doc.name}>
+              Descargar
+            </a>
+          </div>
+          <div className="hd-doc-frame">
+            {doc.type === "application/pdf" ? (
+              blobUrl ? <iframe title={title} src={blobUrl} /> : <p>Preparando vista previa...</p>
+            ) : (
+              <img src={doc.data} alt={title} />
+            )}
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
 function Verificaciones({ pendingWorkers, cat, dispatch, toast }) {
   const [modalWorker, setModalWorker] = useState(null);
+  const [viewer, setViewer] = useState(null);
   const [notes, setNotes] = useState("");
 
   if (pendingWorkers.length === 0)
@@ -403,7 +466,7 @@ function Verificaciones({ pendingWorkers, cat, dispatch, toast }) {
   };
 
   const handleApprove = async (w) => {
-    if (!w.cvUrl || !w.certificateUrl) {
+    if (!hasDocs(w)) {
       toast("No se puede aprobar: primero debes revisar la hoja de vida y el certificado cargados.", "error");
       return;
     }
@@ -464,21 +527,21 @@ function Verificaciones({ pendingWorkers, cat, dispatch, toast }) {
 
             <div className="hd-verification-documents">
               <strong>Documentos enviados por el profesional</strong>
-              {w.cvUrl ? (
-                <a href={w.cvUrl} target="_blank" rel="noreferrer" className="hd-document-link">
+              {w.hasCv || w.cvUrl ? (
+                <button type="button" className="hd-document-link" onClick={() => setViewer({ worker: w, kind: "cv" })}>
                   <Icon name="fileText" size={17} />
                   <span><b>Hoja de vida</b><small>{w.cvFile || "Abrir hoja de vida"}</small></span>
                   <Icon name="externalLink" size={15} />
-                </a>
+                </button>
               ) : (
                 <div className="hd-document-missing">Falta cargar una hoja de vida verificable.</div>
               )}
-              {w.certificateUrl ? (
-                <a href={w.certificateUrl} target="_blank" rel="noreferrer" className="hd-document-link">
+              {w.hasCert || w.certificateUrl ? (
+                <button type="button" className="hd-document-link" onClick={() => setViewer({ worker: w, kind: "cert" })}>
                   <Icon name="fileText" size={17} />
                   <span><b>Certificado técnico</b><small>{w.certificateFile || w.certifications?.[0] || "Abrir certificado"}</small></span>
                   <Icon name="externalLink" size={15} />
-                </a>
+                </button>
               ) : (
                 <div className="hd-document-missing">Falta cargar un certificado técnico verificable.</div>
               )}
@@ -501,8 +564,8 @@ function Verificaciones({ pendingWorkers, cat, dispatch, toast }) {
               <button
                 className="hd-btn sm"
                 onClick={() => handleApprove(w)}
-                disabled={!w.cvUrl || !w.certificateUrl}
-                title={!w.cvUrl || !w.certificateUrl ? "Debe estar cargada la hoja de vida y el certificado" : "Aprobar manualmente"}
+                disabled={!hasDocs(w)}
+                title={!hasDocs(w) ? "Debe estar cargada la hoja de vida y el certificado" : "Aprobar manualmente"}
               >
                 <Icon name="shieldCheck" size={15} /> Aprobar profesional
               </button>
@@ -510,6 +573,8 @@ function Verificaciones({ pendingWorkers, cat, dispatch, toast }) {
           </article>
         ))}
       </div>
+
+      {viewer && <DocViewer worker={viewer.worker} kind={viewer.kind} onClose={() => setViewer(null)} />}
 
       {modalWorker && (
         <Modal title={`Solicitar correcciones a ${modalWorker.name}`} onClose={() => setModalWorker(null)}>

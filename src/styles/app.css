@@ -4438,3 +4438,34 @@ button:disabled {
   font-size: 13px;
   line-height: 1.5;
 }
+
+/* ---- Visor de documentos del administrador ---- */
+button.hd-document-link { width: 100%; text-align: left; font: inherit; cursor: pointer; background: none; }
+.hd-doc-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; margin-bottom: 10px; }
+.hd-doc-frame { border: 1px solid #eadfd9; border-radius: 12px; overflow: auto; max-height: 65vh; background: #f6f1ee; text-align: center; }
+.hd-doc-frame iframe { width: 100%; height: 60vh; border: 0; display: block; }
+.hd-doc-frame img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+
+/* ---- Responsive 360 / 768 / 1024: sin desbordes horizontales ---- */
+html, body, #root { max-width: 100%; overflow-x: hidden; }
+img, svg, video, iframe { max-width: 100%; }
+[class*="calc-"], [class*="landing-"], [class*="auth-"], .hd-app * { min-width: 0; }
+.calc-left, .calc-right, .calc-select-wrap, .calc-select, .calc-result-box { max-width: 100%; box-sizing: border-box; }
+.calc-price-range, .calc-notes { overflow-wrap: anywhere; }
+.landing-pill-tag { max-width: 100%; white-space: normal; text-align: center; }
+
+/* ---- Barras de desplazamiento dentro de su contenedor ---- */
+.hd-table-wrap { overflow-x: auto; padding: 0 0 10px; scrollbar-width: thin; scrollbar-color: #e7cfc3 transparent; border-radius: 12px; }
+.hd-table-wrap::-webkit-scrollbar { height: 8px; }
+.hd-table-wrap::-webkit-scrollbar-track { background: transparent; margin: 0 12px; }
+.hd-table-wrap::-webkit-scrollbar-thumb { background: #e7cfc3; border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
+@media (max-width: 767px) {
+  .hd-tabs, .hd-chips { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .hd-tabs::-webkit-scrollbar, .hd-chips::-webkit-scrollbar { display: none; }
+  .hd-tabs button { flex: 0 0 auto; white-space: nowrap; }
+}
+@media (max-width: 480px) {
+  .hd-form-row { grid-template-columns: 1fr !important; }
+  .hd-modal-actions { flex-direction: column-reverse; }
+  .hd-modal-actions .hd-btn { width: 100%; justify-content: center; }
+}

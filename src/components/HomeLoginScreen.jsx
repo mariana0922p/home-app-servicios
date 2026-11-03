@@ -6,8 +6,9 @@ import {
   signInWithPopup,
   sendPasswordResetEmail,
 } from "firebase/auth";
-import { auth, storage, firebaseConfigured } from "../firebase";
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { auth, firebaseConfigured } from "../firebase";
+import { prepareDocument } from "../data/files.js";
+import { saveWorkerDoc } from "../services/docs.js";
 import { getUserProfile, saveUserProfile, subscribePublicCatalog } from "../services/db.js";
 import { CATEGORIES, ZONES } from "../data/seed.js";
 import { fmtCOP } from "../data/utils.js";
@@ -347,16 +348,18 @@ export default function HomeLoginScreen({ onAuthenticated }) {
         setFeedback({ type: "error", text: "Adjunta tanto la hoja de vida como el certificado para enviar tu postulación." });
         return;
       }
-      const allowedTypes = ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "image/jpeg", "image/png"];
-      for (const file of [workerCvFile, workerCertificateFile]) {
-        if (file.size > 10 * 1024 * 1024) {
-          setFeedback({ type: "error", text: "Cada documento debe pesar máximo 10 MB." });
-          return;
-        }
-        if (file.type && !allowedTypes.includes(file.type)) {
-          setFeedback({ type: "error", text: "Usa archivos PDF, DOC, DOCX, JPG o PNG." });
-          return;
-        }
+    }
+
+    // Se validan y comprimen los documentos ANTES de crear la cuenta (PDF o foto, máx. 700 KB c/u)
+    let cvDoc = null;
+    let certDoc = null;
+    if (registerRole === "trabajador") {
+      try {
+        cvDoc = await prepareDocument(workerCvFile);
+        certDoc = await prepareDocument(workerCertificateFile);
+      } catch (docErr) {
+        setFeedback({ type: "error", text: docErr.message });
+        return;
       }
     }
 
@@ -400,15 +403,13 @@ export default function HomeLoginScreen({ onAuthenticated }) {
       await saveUserProfile(user.uid, profileData);
 
       if (registerRole === "trabajador") {
-        const safeName = (name) => name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-90);
-        const cvRef = storageRef(storage, `professional-documents/${user.uid}/hoja-de-vida-${Date.now()}-${safeName(workerCvFile.name)}`);
-        const certRef = storageRef(storage, `professional-documents/${user.uid}/certificado-${Date.now()}-${safeName(workerCertificateFile.name)}`);
-        await uploadBytes(cvRef, workerCvFile, { contentType: workerCvFile.type || "application/octet-stream" });
-        await uploadBytes(certRef, workerCertificateFile, { contentType: workerCertificateFile.type || "application/octet-stream" });
-        profileData.cvUrl = await getDownloadURL(cvRef);
-        profileData.certificateUrl = await getDownloadURL(certRef);
-        profileData.cvPath = cvRef.fullPath;
-        profileData.certificatePath = certRef.fullPath;
+        // Hoja de vida y certificado se guardan en Firestore (colección workerDocs); el admin los abre desde Verificaciones.
+        await saveWorkerDoc(user.uid, "cv", cvDoc);
+        await saveWorkerDoc(user.uid, "cert", certDoc);
+        profileData.hasCv = true;
+        profileData.hasCert = true;
+        profileData.cvFile = cvDoc.name;
+        profileData.certificateFile = certDoc.name;
         await saveUserProfile(user.uid, profileData);
       }
 
@@ -424,8 +425,8 @@ export default function HomeLoginScreen({ onAuthenticated }) {
         msg = "Este correo electrónico ya está registrado. Por favor inicia sesión.";
       } else if (err.code === "auth/weak-password") {
         msg = "La contraseña debe tener al menos 6 caracteres.";
-      } else if (err.code === "storage/unauthorized" || err.code === "permission-denied") {
-        msg = "No pudimos guardar los documentos. Revisa las reglas de Firebase Storage y Firestore; tu postulación no se aprobará automáticamente.";
+      } else if (err.code === "permission-denied") {
+        msg = "No pudimos guardar los documentos. Publica las reglas de Firestore (firestore.rules) e intenta de nuevo.";
       } else if (err.message?.includes("Firebase no está configurado")) {
         msg = err.message;
       } else if (err.message) {
@@ -1376,7 +1377,7 @@ export default function HomeLoginScreen({ onAuthenticated }) {
                           <span className="auth-file-name">{workerCvFile?.name || "Adjunta tu hoja de vida"}</span>
                           <input
                             type="file"
-                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                            accept=".pdf,.jpg,.jpeg,.png,.webp"
                             className="auth-file-input"
                             id="cv-upload"
                             onChange={(e) => setWorkerCvFile(e.target.files?.[0] || null)}
@@ -1392,14 +1393,14 @@ export default function HomeLoginScreen({ onAuthenticated }) {
                           <span className="auth-file-name">{workerCertificateFile?.name || "Adjunta tu certificado"}</span>
                           <input
                             type="file"
-                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                            accept=".pdf,.jpg,.jpeg,.png,.webp"
                             className="auth-file-input"
                             id="certificate-upload"
                             onChange={(e) => setWorkerCertificateFile(e.target.files?.[0] || null)}
                           />
                           <label htmlFor="certificate-upload" className="auth-file-upload-btn">Examinar...</label>
                         </div>
-                        <span className="auth-hint">Los dos documentos se guardan de forma privada y solo el profesional y el administrador podrán revisarlos. Tu perfil quedará pendiente hasta que el administrador tome una decisión.</span>
+                        <span className="auth-hint">PDF o foto (JPG/PNG), máximo 700 KB cada uno; las fotos se comprimen solas. Los documentos son privados: solo tú y el administrador pueden verlos. Tu perfil quedará pendiente hasta que el administrador decida.</span>
                       </div>
                     </div>
                   )}

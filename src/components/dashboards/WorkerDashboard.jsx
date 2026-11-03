@@ -6,8 +6,8 @@ import { useStore } from "../../data/store.jsx";
 import { ZONES } from "../../data/seed.js";
 import { fmtCOP, fmtDate, lookFor, today } from "../../data/utils.js";
 import { exportWorkerEarningsExcel } from "../../data/excelExport.js";
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage, firebaseConfigured } from "../../firebase.js";
+import { prepareDocument } from "../../data/files.js";
+import { saveWorkerDoc } from "../../services/docs.js";
 import { saveUserProfile } from "../../services/db.js";
 
 const normalizeCommissionRate = (value, fallback = 0.15) => {
@@ -185,19 +185,19 @@ export default function WorkerDashboard({ session, onLogout }) {
                   toast("Subiendo documentos actualizados...");
                   let updates = { approvalStatus: "pendiente_revision" };
 
-                  // PARCHE DE CORS: Se le inyecta el tipo de contenido (metadata) explícito
+                  // Los documentos se guardan en Firestore (sin Firebase Storage)
                   if (hvFile) {
-                    const hvRef = storageRef(storage, `professional-documents/${userId}/hoja_de_vida_${Date.now()}_${hvFile.name}`);
-                    const metadata = { contentType: hvFile.type };
-                    const snap = await uploadBytes(hvRef, hvFile, metadata);
-                    updates.cvFile = await getDownloadURL(snap.ref);
+                    const doc = await prepareDocument(hvFile);
+                    await saveWorkerDoc(userId, "cv", doc);
+                    updates.hasCv = true;
+                    updates.cvFile = doc.name;
                   }
 
                   if (certFile) {
-                    const certRef = storageRef(storage, `professional-documents/${userId}/certificado_${Date.now()}_${certFile.name}`);
-                    const metadata = { contentType: certFile.type };
-                    const snap = await uploadBytes(certRef, certFile, metadata);
-                    updates.certificateFile = await getDownloadURL(snap.ref);
+                    const doc = await prepareDocument(certFile);
+                    await saveWorkerDoc(userId, "cert", doc);
+                    updates.hasCert = true;
+                    updates.certificateFile = doc.name;
                   }
 
                   await saveUserProfile(userId, updates);

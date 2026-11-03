@@ -5,8 +5,7 @@ import { Avatar, Badge, Card, Empty, Modal, StatCard, Stars, Steps, useToast } f
 import { useStore } from "../../data/store.jsx";
 import { FAQ } from "../../data/seed.js";
 import { fmtCOP, fmtDate, today } from "../../data/utils.js";
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage, firebaseConfigured } from "../../firebase.js";
+import { resizeImage } from "../../data/files.js";
 import { createRealRequest } from "../../services/db.js";
 
 export default function ClientDashboard({ session, onLogout }) {
@@ -134,10 +133,8 @@ export default function ClientDashboard({ session, onLogout }) {
             const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
             let photoUrl;
             if (photoFile) {
-              if (!firebaseConfigured) throw new Error("Firebase Storage debe estar configurado para adjuntar fotografías.");
-              const photoRef = storageRef(storage, `request-attachments/${userId}/${requestId}/${Date.now()}-${photoFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`);
-              await uploadBytes(photoRef, photoFile, { contentType: photoFile.type });
-              photoUrl = await getDownloadURL(photoRef);
+              // La foto se reduce y viaja dentro de la propia solicitud (sin Firebase Storage)
+              photoUrl = await resizeImage(photoFile, 800, 0.7);
             }
             const requestData = {
               ...formData,

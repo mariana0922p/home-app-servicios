@@ -59,6 +59,17 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Hoja de vida y certificado (guardados en Firestore, sin Firebase Storage):
+    // solo los ve el dueño y el administrador.
+    match /workerDocs/{docId} {
+      allow read: if signedIn() && (isAdmin() || resource.data.uid == request.auth.uid);
+      allow create, update: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && docId == request.auth.uid + '_' + request.resource.data.kind
+        && request.resource.data.kind in ['cv', 'cert'];
+      allow delete: if isAdmin();
+    }
+
     match /professionals/{professionalId} {
       // Solo el resumen público de profesionales aprobados se ve sin iniciar sesión.
       allow read: if isAdmin()
